@@ -1,0 +1,48 @@
+#ifndef CONFIG_H
+#define CONFIG_H
+
+// Wi-Fi設定
+#define WIFI_SSID "YOUR_SSID"
+#define WIFI_PASSWORD "YOUR_PASSWORD"
+
+// MQTT設定（共通）
+// Receiver 用資格情報・トピック（現行設定）
+#define MQTT_RECEIVER_USERNAME "hapbeat-device"
+#define MQTT_RECEIVER_PASSWORD "hapbeat-device"
+#define MQTT_RECEIVER_TOPIC "sensor_hapbeat"
+
+// ローカルブローカー（AtomS3 内蔵、平文 1883）
+#define MQTT_USE_LOCAL_BROKER 1
+#define MQTT_LOCAL_HOSTNAME "hapbeat-broker"  // mDNS ホスト名（.local は不要）
+#define MQTT_LOCAL_PORT 1883
+// Broker(AtomS3) の固定IP運用（同一APでも常に同じホスト部に固定）
+// 推奨値（環境別）:
+// - 一般的な家庭用ルーター（/24 想定）: 200〜250 推奨（DHCP配布範囲外の未使用域）
+// - 機器が多い家庭/オフィス: 240〜250 など未使用域（必ずDHCP配布範囲を避ける）
+// - スマホテザリング等（/28 など小さいサブネット）: 10 または 12 推奨
+//   （有効ホスト範囲は通常 2〜14。1はGW、0/最大は予約。大きすぎる値は無効）
+// - 企業/学校ネットワーク: 管理者指示に従い、固定IPまたはDHCP予約を推奨
+// 注意:
+// - DHCP配布範囲内の値は衝突/ARP競合で不安定化の原因。管理画面で範囲を要確認
+// - 無効な値を設定してもファーム側で 10 → (max-1) → 2 の順に自動補正
+// - 衝突が疑われる場合は Broker 画面に警告が表示されます。別の値に変更してください
+// 例: サブネットが 192.168.10.0/24 の場合 → 192.168.10.<OCTET>
+#define BROKER_STATIC_HOST_OCTET 10
+
+// Sender 用資格情報・トピック
+#define MQTT_SENDER_USERNAME "color-sensor"
+#define MQTT_SENDER_PASSWORD "color-sensor"
+#define MQTT_TOPIC_HAPBEAT "sensor_hapbeat"
+#define MQTT_TOPIC_WEBAPP "senser_webApp"
+#define MQTT_TOPIC_COLOR "sensor_color"
+
+// クラウドブローカー（TLS）
+#define MQTT_CLOUD_SERVER "YOUR_CLOUD_BROKER"
+#define MQTT_CLOUD_PORT 8883
+// ルートCA 証明書（必要に応じて設定）
+#define MQTT_CERTIFICATE \
+  "-----BEGIN CERTIFICATE-----\n" \
+  "<YOUR_CA_CERT_HERE>\n" \
+  "-----END CERTIFICATE-----"
+
+#endif  // CONFIG_H
