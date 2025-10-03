@@ -11,9 +11,8 @@
 #include <displayManager.h>
 
 #ifdef ESPNOW
-  #include <espnow_manager.h>
 #elif MQTT
-  #include <MQTT_manager.h>
+  #include <receiver_MQTT_manager.h>
 #endif
 
 #include "adjustParams.h"

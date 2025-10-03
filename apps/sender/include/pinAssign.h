@@ -4,6 +4,7 @@
 
 #ifdef M5STACK_ATOM
   #define LED_PIN 27
+  #define BTN_PIN 39
 #endif
 
 #ifdef M5STAMP_S3

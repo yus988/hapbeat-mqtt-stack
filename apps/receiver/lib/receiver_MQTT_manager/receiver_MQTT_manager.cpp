@@ -1,12 +1,14 @@
-#include "MQTT_manager.h"
+#include "receiver_MQTT_manager.h"
 
 #include "WiFi.h"
+#include <WiFiUdp.h>
 
 namespace MQTT_manager {
 
 int attemptTimes = 5;
 bool mqttConnected = false;
-WiFiClientSecure espClient;
+WiFiClient netClient;
+WiFiClientSecure tlsClient;
 MQTTClient client;
 int QoS_Val = 1;  // 0, 1, 2
 const char* clientIdPrefix = "Hapbeat_esp32_client-";
@@ -21,6 +23,40 @@ void messageReceived(String& topic, String& payload) {
 }
 
 const char* ca_cert = MQTT_CERTIFICATE;
+// ローカルブローカー解決（固定IP → UDPディスカバリ → mDNS）
+static bool mqtt_resolve_local_broker(char* outHost, size_t hostLen, int& outPort) {
+  outHost[0] = 0;
+  outPort = MQTT_LOCAL_PORT;
+  if (String(MQTT_LOCAL_IP).length() > 0) {
+    strlcpy(outHost, MQTT_LOCAL_IP, hostLen);
+    return true;
+  }
+  WiFiUDP u;
+  u.begin(0);
+  IPAddress bcast = IPAddress(~WiFi.subnetMask() | WiFi.gatewayIP());
+  u.beginPacket(bcast, 53531);
+  u.write((const uint8_t*)"HB_DISCOVER", 11);
+  u.endPacket();
+  unsigned long t0 = millis();
+  char rbuf[64] = {0};
+  while (millis() - t0 < 500) {
+    int p = u.parsePacket();
+    if (p) {
+      int n = u.read(rbuf, sizeof(rbuf) - 1);
+      if (n > 0) rbuf[n] = 0;
+      if (strncmp(rbuf, "MQTT:", 5) == 0) {
+        char* ipstr = rbuf + 5;
+        char* colon = strchr(ipstr, ':');
+        if (colon) { *colon = 0; outPort = atoi(colon + 1); }
+        strlcpy(outHost, ipstr, hostLen);
+        return true;
+      }
+    }
+    delay(10);
+  }
+  strlcpy(outHost, String(MQTT_LOCAL_HOSTNAME ".local").c_str(), hostLen);
+  return true;
+}
 
 String getUniqueClientId() {
   String clientId = clientIdPrefix;
@@ -85,12 +121,24 @@ void initMQTTclient(void (*callback)(char*, byte*, unsigned int),
   }
   statusCallback("WiFi connected!");
 
-  // モデムスリープモードを有効に設定
-  WiFi.setSleep(true);
+  // mDNS の安定化のためスリープ無効
+  WiFi.setSleep(false);
+  // ソケットタイムアウト調整
+  netClient.setTimeout(20000);
+  tlsClient.setTimeout(20000);
 
-  espClient.setCACert(ca_cert);
-  client.begin(MQTT_SERVER, MQTT_PORT, espClient);
-  client.setCleanSession(true);  // false で新しいセッションとして接続
+  // ローカル/クラウド切替（ローカルは平文、クラウドはTLS）
+  #if MQTT_USE_LOCAL_BROKER
+    char host[32] = {0};
+    int port = MQTT_LOCAL_PORT;
+    mqtt_resolve_local_broker(host, sizeof(host), port);
+    client.begin(host, port, netClient);
+  #else
+    tlsClient.setCACert(ca_cert);
+    client.begin(MQTT_CLOUD_SERVER, MQTT_CLOUD_PORT, tlsClient);
+  #endif
+  client.setCleanSession(true);
+  client.setKeepAlive(15);
   client.onMessage(messageReceived);
   reconnect();
 }

@@ -1,16 +1,18 @@
-#ifndef MQTT_MANAGER_H
-#define MQTT_MANAGER_H
+#ifndef SENDER_MQTT_MANAGER_H
+#define SENDER_MQTT_MANAGER_H
 
 #include <WiFi.h>
+#include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <MQTT.h>  // 256dpi/MQTTライブラリをインクルード
 
-#include "../../include/config.h"  // プロジェクトのルートからインクルード
+#include "config.h"  // ルートの config を直接参照（-I . で解決）
 
 namespace MQTT_manager {
 
 extern bool mqttConnected;
-extern WiFiClientSecure espClient;
+extern WiFiClient netClient;       // 平文 (ローカル)
+extern WiFiClientSecure tlsClient; // TLS (クラウド)
 extern MQTTClient client;
 extern void (*statusCallback)(const char*);
 
@@ -23,4 +25,4 @@ void sendMessageToWebApp(const char* message);
 
 }  // namespace MQTT_manager
 
-#endif  // MQTT_MANAGER_H
+#endif  // SENDER_MQTT_MANAGER_H

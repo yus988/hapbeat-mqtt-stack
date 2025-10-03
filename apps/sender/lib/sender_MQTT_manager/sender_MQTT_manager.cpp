@@ -1,9 +1,12 @@
-#include "MQTT_manager.h"
+#include "sender_MQTT_manager.h"
+#include <WiFiUdp.h>
+#include "../../../shared/lib/mqtt_discovery.h"
 
 namespace MQTT_manager {
 
 bool mqttConnected = false;
-WiFiClientSecure espClient;
+WiFiClient netClient;
+WiFiClientSecure tlsClient;
 MQTTClient client(256);
 const char* clientIdPrefix = "Sensor_esp32_client-";
 const char* ca_cert = MQTT_CERTIFICATE;
@@ -13,6 +16,41 @@ void (*statusCallback)(const char*);
 const char* topicHapbeat = MQTT_TOPIC_HAPBEAT;
 const char* topicWebApp = MQTT_TOPIC_WEBAPP;
 const int QoS_Val = 1;  // 0=once, 1=least once, 2=exact once
+
+// ローカルブローカー解決（固定IP → UDPディスカバリ → mDNS）
+static bool mqtt_resolve_local_broker(char* outHost, size_t hostLen, int& outPort) {
+  outHost[0] = 0;
+  outPort = MQTT_LOCAL_PORT;
+  if (String(MQTT_LOCAL_IP).length() > 0) {
+    strlcpy(outHost, MQTT_LOCAL_IP, hostLen);
+    return true;
+  }
+  WiFiUDP u;
+  u.begin(0);
+  IPAddress bcast = IPAddress(~WiFi.subnetMask() | WiFi.gatewayIP());
+  u.beginPacket(bcast, 53531);
+  u.write((const uint8_t*)"HB_DISCOVER", 11);
+  u.endPacket();
+  unsigned long t0 = millis();
+  char rbuf[64] = {0};
+  while (millis() - t0 < 500) {
+    int p = u.parsePacket();
+    if (p) {
+      int n = u.read(rbuf, sizeof(rbuf) - 1);
+      if (n > 0) rbuf[n] = 0;
+      if (strncmp(rbuf, "MQTT:", 5) == 0) {
+        char* ipstr = rbuf + 5;
+        char* colon = strchr(ipstr, ':');
+        if (colon) { *colon = 0; outPort = atoi(colon + 1); }
+        strlcpy(outHost, ipstr, hostLen);
+        return true;
+      }
+    }
+    delay(10);
+  }
+  strlcpy(outHost, String(MQTT_LOCAL_HOSTNAME ".local").c_str(), hostLen);
+  return true;
+}
 
 // ユニークなクライアントIDを生成する関数
 String getUniqueClientId() {
@@ -54,6 +92,7 @@ void connect() {
         mqttConnected = false;
         Serial.println("Subscription to topicHapbeat failed");
       }
+      #if !MQTT_USE_LOCAL_BROKER
       if (client.subscribe(topicWebApp, 1)) {
         Serial.print("Subscribed to topic: ");
         Serial.println(topicWebApp);
@@ -61,6 +100,7 @@ void connect() {
         mqttConnected = false;
         Serial.println("Subscription to topicWebApp failed");
       }
+      #endif
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.lastError());
@@ -85,11 +125,21 @@ void initMQTTclient(void (*statusCb)(const char*)) {
   }
   Serial.println("Connected to WiFi");
 
-  // 証明書の設定
-  espClient.setCACert(ca_cert);
-  espClient.setTimeout(20000);  // タイムアウト設定
+  // ローカルブローカーは平文のため TLS は無効、クラウド時のみ証明書設定
+  netClient.setTimeout(20000);
+  tlsClient.setTimeout(20000);
 
-  client.begin(MQTT_SERVER, MQTT_PORT, espClient);
+  // ローカル/クラウド自動切替（ローカル優先）
+  client.setCleanSession(false);
+  #if MQTT_USE_LOCAL_BROKER
+    char host[32] = {0};
+    int port = MQTT_LOCAL_PORT;
+    mqtt_resolve_local_broker(host, sizeof(host), port);
+    client.begin(host, port, netClient);
+  #else
+    tlsClient.setCACert(ca_cert);
+    client.begin(MQTT_CLOUD_SERVER, MQTT_CLOUD_PORT, tlsClient);
+  #endif
   // client.onMessage(messageReceived);
   connect();
 
@@ -118,12 +168,16 @@ void sendMessageToHapbeat(const char* message) {
 }
 
 void sendMessageToWebApp(const char* message) {
+  #if MQTT_USE_LOCAL_BROKER
+  (void)message; // local brokerではWebApp不要
+  #else
   if (client.publish(topicWebApp, message, false, QoS_Val)) {
     Serial.print("Message sent to WebApp: ");
     Serial.println(message);
   } else {
     Serial.println("Failed to send message to WebApp");
   }
+  #endif
 }
 
 }  // namespace MQTT_manager

@@ -6,11 +6,7 @@
 
 // NO_DISPLAY を前提とするため、UIは常に無効
 
-#ifdef ESPNOW
-  #include <espnow_manager.h>
-#else
-  #include <MQTT_manager.h>
-#endif
+#include <sender_MQTT_manager.h>
 
 #include "adjustParams.h"
 #include "config.h"
@@ -69,7 +65,7 @@ void TaskColorSensor(void* args) {
       COLOR_CHANGE_INTERVAL;  // 変数:
                               // 赤、青、黄以外の色が経過する時間（ミリ秒）
 
-  // 検知中の点滅制御
+  // 検知中/接続中の点滅制御
   static bool isDetecting = false;
   static bool ledOn = false;
   static unsigned long lastBlink = 0;
@@ -172,8 +168,18 @@ void TaskColorSensor(void* args) {
       _leds[0] = ledOn ? blinkColor : CRGB::Black;
       FastLED.show();
     } else {
-      // 非検知時は緑点灯（接続時と同じ）
-      _leds[0] = CREATE_CRGB(COLOR_CONNECTED);
+      // 非検知時：接続状態に応じて表示
+      if (MQTT_manager::mqttConnected) {
+        _leds[0] = CREATE_CRGB(COLOR_CONNECTED);
+      } else {
+        // 接続中は白点滅
+        unsigned long now = millis();
+        if (now - lastBlink >= BLINK_INTERVAL_MS) {
+          ledOn = !ledOn;
+          lastBlink = now;
+        }
+        _leds[0] = ledOn ? CRGB::White : CRGB::Black;
+      }
       FastLED.show();
     }
 
@@ -200,22 +206,28 @@ void setup(void) {
   _leds[0] = CREATE_CRGB(COLOR_UNCONNECTED);
   FastLED.setBrightness(LED_BRIGHTNESS);
   FastLED.show();
+  pinMode(BTN_PIN, INPUT_PULLUP);
   ColorSensor::initColorSensor();
   xTaskCreatePinnedToCore(TaskColorSensor, "TaskColorSensor", 8192, NULL, 10,
                           &thp[1], 1);
 
-#ifdef ESPNOW
-  initEspNow();
-#elif MQTT
+  // 常にMQTTを初期化（コンパイルフラグに依存しない）
   MQTT_manager::initMQTTclient(mqttStatusCallback);
   xTaskCreatePinnedToCore(TaskMQTT, "TaskMQTT", 8192, NULL, 23, &thp[0], 1);
-#endif
 }
 
 void loop(void) {
-#ifdef ESPNOW
-  sendSerialViaESPNOW();
-#endif
+  // デバッグ: Atom Lite ボタンで Red シグナルを送信
+  if (digitalRead(BTN_PIN) == LOW) {
+    int id = RED_PARAMS.id;
+    int lVol = RED_PARAMS.vol;
+    int rVol = lVol;
+    char message[100];
+    snprintf(message, sizeof(message), "%d,%d,%d,%d,%d,%d,%d,%d", CATEGORY,
+             WEARER_ID, DEVICE_POS, id, SUB_ID, lVol, rVol, PLAY_CMD);
+    MQTT_manager::sendMessageToHapbeat(message);
+    delay(300);
+  }
 }
 
 #if !defined(ARDUINO) && defined(ESP_PLATFORM)
