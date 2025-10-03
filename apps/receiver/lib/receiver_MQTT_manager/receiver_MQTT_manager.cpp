@@ -1,5 +1,4 @@
 #include "receiver_MQTT_manager.h"
-
 #include "WiFi.h"
 #include <WiFiUdp.h>
 
@@ -23,39 +22,19 @@ void messageReceived(String& topic, String& payload) {
 }
 
 const char* ca_cert = MQTT_CERTIFICATE;
-// ローカルブローカー解決（固定IP → UDPディスカバリ → mDNS）
-static bool mqtt_resolve_local_broker(char* outHost, size_t hostLen, int& outPort) {
-  outHost[0] = 0;
+// ローカルブローカー解決（サブネット + 固定ホスト部）
+static void mqtt_resolve_local_broker(char* outHost, size_t hostLen, int& outPort) {
   outPort = MQTT_LOCAL_PORT;
-  if (String(MQTT_LOCAL_IP).length() > 0) {
-    strlcpy(outHost, MQTT_LOCAL_IP, hostLen);
-    return true;
+  IPAddress gw = WiFi.gatewayIP();
+  IPAddress mask = WiFi.subnetMask();
+  uint8_t net3 = gw[3] & mask[3];
+  uint8_t hostMax = (~mask[3]) & 0xFF; // 下位オクテットの最大ホスト値
+  uint8_t hostId = (uint8_t)(BROKER_STATIC_HOST_OCTET & 0xFF);
+  if (hostMax <= 2 || hostId <= 1 || hostId >= hostMax) {
+    hostId = (hostMax > 11) ? 10 : (hostMax > 2 ? (hostMax - 1) : 2);
   }
-  WiFiUDP u;
-  u.begin(0);
-  IPAddress bcast = IPAddress(~WiFi.subnetMask() | WiFi.gatewayIP());
-  u.beginPacket(bcast, 53531);
-  u.write((const uint8_t*)"HB_DISCOVER", 11);
-  u.endPacket();
-  unsigned long t0 = millis();
-  char rbuf[64] = {0};
-  while (millis() - t0 < 500) {
-    int p = u.parsePacket();
-    if (p) {
-      int n = u.read(rbuf, sizeof(rbuf) - 1);
-      if (n > 0) rbuf[n] = 0;
-      if (strncmp(rbuf, "MQTT:", 5) == 0) {
-        char* ipstr = rbuf + 5;
-        char* colon = strchr(ipstr, ':');
-        if (colon) { *colon = 0; outPort = atoi(colon + 1); }
-        strlcpy(outHost, ipstr, hostLen);
-        return true;
-      }
-    }
-    delay(10);
-  }
-  strlcpy(outHost, String(MQTT_LOCAL_HOSTNAME ".local").c_str(), hostLen);
-  return true;
+  uint8_t finalOctet = net3 | hostId;
+  snprintf(outHost, hostLen, "%u.%u.%u.%u", gw[0], gw[1], gw[2], finalOctet);
 }
 
 String getUniqueClientId() {

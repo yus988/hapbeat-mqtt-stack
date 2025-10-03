@@ -40,12 +40,37 @@ static int bottomReservePx() {
 void drawIPandPort() {
     M5.Lcd.setTextColor(WHITE, BLACK);
     const int lh = M5.Lcd.fontHeight();
-    M5.Lcd.fillRect(0, IP_posY, 320, lh, BLACK);
-    M5.Lcd.fillRect(0, port_posY, 320, lh, BLACK);
-    M5.Lcd.setCursor(0, IP_posY);
-    M5.Lcd.printf("IP:%s\n", WiFi.localIP().toString().c_str());
-    M5.Lcd.setCursor(0, port_posY);
+    // 最小限（OCTET, Port, IP）表示のため3行分クリア
+    M5.Lcd.fillRect(0, IP_posY, 320, lh * 3, BLACK);
+
+    // 各値の計算（オクテット単位で算出）
+    IPAddress gw = WiFi.gatewayIP();
+    IPAddress mask = WiFi.subnetMask();
+    uint8_t net3 = gw[3] & mask[3];
+    uint8_t hostMax = (~mask[3]) & 0xFF; // 下位オクテットの最大ホスト値
+    uint8_t hostId = (uint8_t)(BROKER_STATIC_HOST_OCTET & 0xFF);
+    if (hostMax <= 2 || hostId <= 1 || hostId >= hostMax) {
+        hostId = (hostMax > 11) ? 10 : (hostMax > 2 ? (hostMax - 1) : 2);
+    }
+    uint8_t finalOctet = net3 | hostId;
+    IPAddress calcIp(gw[0], gw[1], gw[2], finalOctet);
+    // 最小限の表示
+    int y = IP_posY;
+    M5.Lcd.setCursor(0, y);
+    M5.Lcd.printf("OCTET:%u\n", (unsigned)hostId);
+    y += lh;
+    M5.Lcd.setCursor(0, y);
     M5.Lcd.printf("Port:%d\n", MQTT_LOCAL_PORT);
+    y += lh;
+    // 実IP（計算結果と一致するはず）
+    uint8_t net3 = gw[3] & mask[3];
+    uint8_t finalOctet = net3 | hostId;
+    IPAddress calcIp(gw[0], gw[1], gw[2], finalOctet);
+    M5.Lcd.setCursor(0, y);
+    M5.Lcd.printf("IP:%s\n", calcIp.toString().c_str());
+
+    // デバイス表示の開始位置を調整（3行の直下）
+    device_posY = y + lh;
 }
 
 void drawDeviceStatus() {
@@ -99,6 +124,17 @@ void drawCommunication(const char* sid, const char* colorName) {
     y += lh;
     M5.Lcd.setCursor(0, y);
     M5.Lcd.printf("- color: %s\n", colorName);
+}
+
+void drawWarning(const char* msg) {
+    M5.Lcd.setTextColor(RED, BLACK);
+    const int lh = M5.Lcd.fontHeight();
+    int y = M5.Lcd.height() - bottomReservePx() - lh; // Communication領域の一つ上
+    if (y < 0) y = 0;
+    M5.Lcd.fillRect(0, y, 320, lh, BLACK);
+    M5.Lcd.setCursor(0, y);
+    M5.Lcd.printf("Warning: %s\n", msg);
+    M5.Lcd.setTextColor(WHITE, BLACK);
 }
 
 // UDP ディスカバリ応答
@@ -198,11 +234,41 @@ void startWiFiClient() {
     M5.Lcd.setCursor(0, IP_posY);
     M5.Lcd.printf("Connecting...\n");
 
+    // 1st phase: DHCP でGW/Mask取得
     WiFi.begin(ssid, password);
-
-    while (WiFi.status() != WL_CONNECTED) {
+    uint32_t t0 = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - t0 < 15000) {
         delay(500);
-        M5.Lcd.print(".");  // 接続中のメッセージ
+        M5.Lcd.print(".");
+    }
+
+    // 固定IPを設定（有効時: GW/Mask取得後に再接続）
+    if (WiFi.status() == WL_CONNECTED && BROKER_STATIC_HOST_OCTET > 0) {
+        IPAddress gw = WiFi.gatewayIP();
+        IPAddress mask = WiFi.subnetMask();
+        // 計算: ip = (gw & mask) | hostId（第4オクテットのみ演算）
+        uint8_t net3 = gw[3] & mask[3];
+        uint8_t hostMax = (~mask[3]) & 0xFF;
+        uint8_t hostId = (uint8_t)(BROKER_STATIC_HOST_OCTET & 0xFF);
+        if (hostMax <= 2 || hostId <= 1 || hostId >= hostMax) {
+            hostId = (hostMax > 11) ? 10 : (hostMax > 2 ? (hostMax - 1) : 2);
+        }
+        uint8_t finalOctet = net3 | hostId;
+        IPAddress ip(gw[0], gw[1], gw[2], finalOctet);
+        IPAddress dns = gw;
+
+        WiFi.disconnect(true);
+        delay(200);
+        WiFi.config(ip, gw, mask, dns);
+        WiFi.begin(ssid, password);
+        t0 = millis();
+        while (WiFi.status() != WL_CONNECTED && millis() - t0 < 8000) {
+            delay(300);
+            M5.Lcd.print(".");
+        }
+        if (WiFi.localIP() != ip || WiFi.status() != WL_CONNECTED) {
+            drawWarning("Static IP conflict suspected");
+        }
     }
 
     // mDNS を開始し、mqttサービスを登録
