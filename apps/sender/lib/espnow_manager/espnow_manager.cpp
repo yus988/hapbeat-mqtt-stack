@@ -1,9 +1,7 @@
 #include <WiFi.h>
 #include <esp_now.h>
 
-#ifndef NO_DISPLAY
-  #include <M5Unified.h>
-#endif
+// NO_DISPLAY 前提のため、表示関連は無効化
 
 namespace espnowManager {
 
@@ -127,16 +125,7 @@ void sendSerialViaESPNOW(void) {
     }
     esp_now_send(slave.peer_addr, data, sizeof(data));
 
-#if defined(ENABLE_DISPLAY)
-    M5.Display.clear(TFT_BLACK);
-    M5.Display.setCursor(0, 100);
-    M5.Display.setTextColor(TFT_WHITE);
-    M5.Display.setTextSize(2);
-    M5.Display.printf("Send Times: %d\n", sendTimes);
-    M5.Display.printf("Input: %s\n", str.c_str());
-    sendTimes += 1;
-    M5.update();
-#endif
+    // display disabled
   }
 }
 

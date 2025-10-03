@@ -1,18 +1,14 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 
-#ifdef ENABLE_COLOR_SENSOR
-  #include <ColorSensor.h>
-  #include <FastLED.h>
-#endif
+#include <ColorSensor.h>
+#include <FastLED.h>
 
-#ifndef NO_DISPLAY
-  #include <M5UImanager.h>
-#endif
+// NO_DISPLAY を前提とするため、UIは常に無効
 
 #ifdef ESPNOW
   #include <espnow_manager.h>
-#elif MQTT
+#else
   #include <MQTT_manager.h>
 #endif
 
@@ -73,6 +69,13 @@ void TaskColorSensor(void* args) {
       COLOR_CHANGE_INTERVAL;  // 変数:
                               // 赤、青、黄以外の色が経過する時間（ミリ秒）
 
+  // 検知中の点滅制御
+  static bool isDetecting = false;
+  static bool ledOn = false;
+  static unsigned long lastBlink = 0;
+  static CRGB blinkColor = CRGB::Black;
+  const unsigned long BLINK_INTERVAL_MS = 500;
+
   while (1) {
     ColorSensor::getColorValues(r, g, b);
     String color = determineColor(r, g, b);
@@ -94,12 +97,25 @@ void TaskColorSensor(void* args) {
           lastSentColor = color;         // 最後に送信した色を更新
           lastChangeTime = currentTime;  // 色が変わった時間を記録
         }
+        // 点滅色の更新
+        if (color == "Red") {
+          blinkColor = CRGB::Red;
+        } else if (color == "Blue") {
+          blinkColor = CRGB::Blue;
+        } else { // Yellow
+          blinkColor = CRGB::Yellow;
+        }
+        isDetecting = true;
+        // 色が変わったら点滅リセット
+        ledOn = false;
+        lastBlink = currentTime;
       } else {
         // 赤、青、黄以外の色が検出された場合
         lastChangeTime = currentTime;  // 色が変わった時間を記録
         if (!sentMessageForNone) {
           lastNoneTime = currentTime;  // Noneが始まった時間を記録
         }
+        isDetecting = false;
       }
     }
 
@@ -146,6 +162,21 @@ void TaskColorSensor(void* args) {
       count = 0;  // カウントをリセット
     }
 
+    // 検知中の点滅処理
+    if (color == "Red" || color == "Blue" || color == "Yellow") {
+      unsigned long now = millis();
+      if (now - lastBlink >= BLINK_INTERVAL_MS) {
+        ledOn = !ledOn;
+        lastBlink = now;
+      }
+      _leds[0] = ledOn ? blinkColor : CRGB::Black;
+      FastLED.show();
+    } else {
+      // 非検知時は緑点灯（接続時と同じ）
+      _leds[0] = CREATE_CRGB(COLOR_CONNECTED);
+      FastLED.show();
+    }
+
     lastColor = color;
     delay(COLOR_SENSOR_INTERVAL);
   }
@@ -154,12 +185,6 @@ void TaskColorSensor(void* args) {
 void TaskMQTT(void* args) {
   while (1) {
     MQTT_manager::loopMQTTclient();
-    if (MQTT_manager::mqttConnected) {
-      _leds[0] = CREATE_CRGB(COLOR_CONNECTED);
-    } else {
-      _leds[0] = CREATE_CRGB(COLOR_UNCONNECTED);
-    }
-    FastLED.show();
     delay(100);
   }
 }
@@ -171,7 +196,6 @@ void setup(void) {
   initM5UImanager();
 #endif
 
-#ifdef ENABLE_COLOR_SENSOR
   FastLED.addLeds<NEOPIXEL, LED_PIN>(_leds, 1);
   _leds[0] = CREATE_CRGB(COLOR_UNCONNECTED);
   FastLED.setBrightness(LED_BRIGHTNESS);
@@ -179,14 +203,6 @@ void setup(void) {
   ColorSensor::initColorSensor();
   xTaskCreatePinnedToCore(TaskColorSensor, "TaskColorSensor", 8192, NULL, 10,
                           &thp[1], 1);
-
-  // M5Capuleをバッテリー駆動で使いたいとき
-  #ifdef M5CAPSULE
-  pinMode(GPIO_NUM_46, OUTPUT);
-  digitalWrite(GPIO_NUM_46, HIGH);
-  #endif
-
-#endif
 
 #ifdef ESPNOW
   initEspNow();
@@ -199,14 +215,6 @@ void setup(void) {
 void loop(void) {
 #ifdef ESPNOW
   sendSerialViaESPNOW();
-#endif
-#if defined(ENABLE_DISPLAY)
-  cmd_stat = "empty";
-  cmd_btn = M5ButtonNotify(cmd_stat);
-  if (cmd_btn != "empty") {
-    SendEspNOW(cmd_btn);
-    Serial.println(cmd_btn);
-  }
 #endif
 }
 

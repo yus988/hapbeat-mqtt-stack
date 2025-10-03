@@ -39,7 +39,7 @@ void connect() {
       statusCallback("Attempting MQTT connection...");
     }
 
-    if (client.connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD)) {
+    if (client.connect(clientId.c_str(), MQTT_SENDER_USERNAME, MQTT_SENDER_PASSWORD)) {
       Serial.println("connected");
       mqttConnected = true;
       if (statusCallback) {
