@@ -137,8 +137,9 @@ void initMQTTclient(void (*callback)(char*, byte*, unsigned int),
     tlsClient.setCACert(ca_cert);
     client.begin(MQTT_CLOUD_SERVER, MQTT_CLOUD_PORT, tlsClient);
   #endif
-  client.setCleanSession(true);
-  client.setKeepAlive(15);
+  // sender と同様のセッション運用（永続セッション）
+  client.setCleanSession(false);
+  // KeepAlive は既定値を使用
   client.onMessage(messageReceived);
   reconnect();
 }

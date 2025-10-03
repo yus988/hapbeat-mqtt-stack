@@ -1,7 +1,7 @@
 #include <WiFi.h>
 #include <M5Unified.h>
 #include "sMQTTBroker.h"
-#include "../../config.h"
+#include "config.h"
 #include <ESPmDNS.h>
 #include <WiFiUdp.h>
 #include <unordered_map>
@@ -12,7 +12,7 @@
 int IP_posY = 0;
 int port_posY = 12;
 int device_posY = 24;
-int info_posY = 52;
+int info_posY = 52; // legacy (unused for bottom area now)
 float text_size = 1.2f;
 
 
@@ -23,15 +23,18 @@ static std::vector<std::string> senderIds;
 static std::vector<std::string> receiverIds;
 
 static std::string shortId(const std::string& cid) {
-    // 末尾6文字 or 最後の '-' 以降を短縮IDとして表示
-    size_t pos = cid.rfind('-');
-    if (pos != std::string::npos && pos + 1 < cid.size()) {
-        std::string tail = cid.substr(pos + 1);
-        if (tail.size() > 6) return tail.substr(tail.size() - 6);
-        return tail;
+    // コロンやハイフンなどの区切りを除去して末尾6文字を採用
+    std::string s;
+    s.reserve(cid.size());
+    for (char c : cid) {
+        if (c != ':' && c != '-' && c != ' ') s.push_back(c);
     }
-    if (cid.size() > 6) return cid.substr(cid.size() - 6);
-    return cid;
+    if (s.size() > 6) return s.substr(s.size() - 6);
+    return s;
+}
+
+static int bottomReservePx() {
+    return M5.Lcd.fontHeight() * 3; // reserve 3 lines at bottom
 }
 
 void drawIPandPort() {
@@ -48,8 +51,10 @@ void drawIPandPort() {
 void drawDeviceStatus() {
     M5.Lcd.setTextColor(WHITE, BLACK);
     const int lh = M5.Lcd.fontHeight();
-    // 消去（残り全体）
-    M5.Lcd.fillRect(0, device_posY, 320, M5.Lcd.height() - device_posY, BLACK);
+    // 消去（下3行を残す）
+    int h = M5.Lcd.height() - device_posY - bottomReservePx();
+    if (h < 0) h = 0;
+    M5.Lcd.fillRect(0, device_posY, 320, h, BLACK);
     int y = device_posY;
     M5.Lcd.setCursor(0, y);
     M5.Lcd.printf("S:%d R:%d\n", senderCount, receiverCount);
@@ -80,6 +85,22 @@ void redrawAll() {
     drawDeviceStatus();
 }
 
+void drawCommunication(const char* sid, const char* colorName) {
+    M5.Lcd.setTextColor(WHITE, BLACK);
+    const int lh = M5.Lcd.fontHeight();
+    int y = M5.Lcd.height() - bottomReservePx();
+    // クリア下3行分
+    M5.Lcd.fillRect(0, y, 320, bottomReservePx(), BLACK);
+    M5.Lcd.setCursor(0, y);
+    M5.Lcd.print("Communication\n");
+    y += lh;
+    M5.Lcd.setCursor(0, y);
+    M5.Lcd.printf("- sensor ID: %s\n", sid);
+    y += lh;
+    M5.Lcd.setCursor(0, y);
+    M5.Lcd.printf("- color: %s\n", colorName);
+}
+
 // UDP ディスカバリ応答
 static WiFiUDP udp;
 static const uint16_t DISCOVERY_PORT = 53531;
@@ -90,9 +111,6 @@ class MyBroker : public sMQTTBroker {
    public:
     bool onConnect(sMQTTClient *client, const std::string &username,
                    const std::string &password) {
-        String message = "onConnect clientId=\n" +
-                         String(client->getClientId().c_str()) +
-                         " username=" + username.c_str();
         // 役割を記録
         std::string cid = client->getClientId();
         std::string sid = shortId(cid);
@@ -109,8 +127,9 @@ class MyBroker : public sMQTTBroker {
         } else {
             clientRole[client] = 0;
         }
-        // 画面全再描画（切り替え）
+        // 画面全再描画（一覧やIP表示を更新）
         redrawAll();
+        // 下部のCommunication領域は触らない
         return true;
     }
 
@@ -146,22 +165,11 @@ class MyBroker : public sMQTTBroker {
 
     void onPublish(sMQTTClient *client, const std::string &topic,
                    const std::string &payload) {
-        // sensor の短縮ID + 内容を表示
-        std::string cid = client->getClientId();
-        auto shortId = [](const std::string& id){
-            size_t pos = id.rfind('-');
-            if (pos != std::string::npos && pos + 1 < id.size()) {
-                std::string tail = id.substr(pos + 1);
-                if (tail.size() > 6) return tail.substr(tail.size() - 6);
-                return tail;
-            }
-            if (id.size() > 6) return id.substr(id.size() - 6);
-            return id;
-        };
-        String line = String(shortId(cid).c_str()) + ": " + String(payload.c_str());
-        M5.Lcd.fillRect(0, info_posY, 320, 80, BLACK);
-        M5.Lcd.setCursor(0, info_posY);
-        M5.Lcd.printf("%s\n", line.c_str());
+        // sender が MQTT_TOPIC_COLOR に color名のみを送信
+        if (topic == std::string(MQTT_TOPIC_COLOR)) {
+            std::string sid = shortId(client->getClientId());
+            drawCommunication(sid.c_str(), payload.c_str());
+        }
     }
 
     bool onEvent(sMQTTEvent *event) {
@@ -211,7 +219,7 @@ void startWiFiClient() {
 void setup() {
     M5.begin();                // M5Stackの初期化
     M5.Lcd.fillScreen(BLACK);  // 画面をクリア
-    // 固定ピクセルフォント（崩れ防止）
+    // 固定ピクセルフォント（元の小さい等幅に戻す）
     M5.Lcd.setFont(&fonts::Font0); // 6x8 等幅
 
     startWiFiClient();  // Wi-Fi接続

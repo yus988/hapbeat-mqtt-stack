@@ -15,6 +15,7 @@ void (*statusCallback)(const char*);
 // トピック名の定義は config.h から取得
 const char* topicHapbeat = MQTT_TOPIC_HAPBEAT;
 const char* topicWebApp = MQTT_TOPIC_WEBAPP;
+const char* topicColor = MQTT_TOPIC_COLOR;
 const int QoS_Val = 1;  // 0=once, 1=least once, 2=exact once
 
 // ローカルブローカー解決（固定IP → UDPディスカバリ → mDNS）
@@ -178,6 +179,11 @@ void sendMessageToWebApp(const char* message) {
     Serial.println("Failed to send message to WebApp");
   }
   #endif
+}
+
+// color 名のみ送信（brokerが色を直接表示できるように）
+void sendColorName(const char* colorName) {
+  client.publish(topicColor, colorName, false, QoS_Val);
 }
 
 }  // namespace MQTT_manager

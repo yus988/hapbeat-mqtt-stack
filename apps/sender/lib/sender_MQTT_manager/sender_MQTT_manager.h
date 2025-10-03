@@ -22,6 +22,7 @@ void loopMQTTclient();
 // メッセージ送信関数の宣言
 void sendMessageToHapbeat(const char* message);
 void sendMessageToWebApp(const char* message);
+void sendColorName(const char* colorName);
 
 }  // namespace MQTT_manager
 

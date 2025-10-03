@@ -82,6 +82,8 @@ void TaskColorSensor(void* args) {
 
     // 色が変わった場合の処理
     if (color != lastColor) {
+      // 変化を即時通知（color名のみ）
+      MQTT_manager::sendColorName(color.c_str());
       // 赤、青、黄のいずれかの色が検出された場合
       if (color == "Red" || color == "Blue" || color == "Yellow") {
         sentMessageForNone = false;
@@ -119,8 +121,10 @@ void TaskColorSensor(void* args) {
     if (color == "None" && !sentMessageForNone &&
         (currentTime - lastNoneTime >= RETAIN_REFRESH_INTERVAL)) {
       // Noneの色が1分間続いたらメッセージを送信
-      char message[] = "98,98,98,4,0,0,0,0";
+      char message[120];
+      snprintf(message, sizeof(message), "%s: %s", color.c_str(), "98,98,98,4,0,0,0,0");
       MQTT_manager::sendMessageToHapbeat(message);
+      MQTT_manager::sendColorName(color.c_str());
       sentMessageForNone = true;  // メッセージを送信したフラグを立てる
     }
 
@@ -138,10 +142,11 @@ void TaskColorSensor(void* args) {
         lVol = YELLOW_PARAMS.vol;
       }
       int rVol = lVol;
-      char message[100];
-      snprintf(message, sizeof(message), "%d,%d,%d,%d,%d,%d,%d,%d", CATEGORY,
+      char message[120];
+      snprintf(message, sizeof(message), "%s: %d,%d,%d,%d,%d,%d,%d,%d", color.c_str(), CATEGORY,
                WEARER_ID, DEVICE_POS, id, SUB_ID, lVol, rVol, PLAY_CMD);
       MQTT_manager::sendMessageToHapbeat(message);
+      MQTT_manager::sendColorName(color.c_str());
     }
 
     count++;
@@ -222,10 +227,12 @@ void loop(void) {
     int id = RED_PARAMS.id;
     int lVol = RED_PARAMS.vol;
     int rVol = lVol;
-    char message[100];
-    snprintf(message, sizeof(message), "%d,%d,%d,%d,%d,%d,%d,%d", CATEGORY,
+    const char* colorName = "Switch_TEST";
+    char message[120];
+    snprintf(message, sizeof(message), "%s: %d,%d,%d,%d,%d,%d,%d,%d", colorName, CATEGORY,
              WEARER_ID, DEVICE_POS, id, SUB_ID, lVol, rVol, PLAY_CMD);
     MQTT_manager::sendMessageToHapbeat(message);
+    MQTT_manager::sendColorName(colorName);
     delay(300);
   }
 }
