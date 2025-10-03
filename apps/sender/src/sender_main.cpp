@@ -3,9 +3,6 @@
 
 #include <ColorSensor.h>
 #include <FastLED.h>
-
-// NO_DISPLAY を前提とするため、UIは常に無効
-
 #include <sender_MQTT_manager.h>
 
 #include "adjustParams.h"
@@ -70,7 +67,8 @@ void TaskColorSensor(void* args) {
   static bool ledOn = false;
   static unsigned long lastBlink = 0;
   static CRGB blinkColor = CRGB::Black;
-  const unsigned long BLINK_INTERVAL_MS = 500;
+  const unsigned long DETECT_BLINK_INTERVAL_MS = 200;  // 検知時の点滅周期（高速）
+  const unsigned long IDLE_BLINK_INTERVAL_MS = 500;    // 非検知/未接続時の白点滅周期（従来）
 
   while (1) {
     ColorSensor::getColorValues(r, g, b);
@@ -163,14 +161,9 @@ void TaskColorSensor(void* args) {
       count = 0;  // カウントをリセット
     }
 
-    // 検知中の点滅処理
+    // 検知時は点滅せず、検知色を常時点灯
     if (color == "Red" || color == "Blue" || color == "Yellow") {
-      unsigned long now = millis();
-      if (now - lastBlink >= BLINK_INTERVAL_MS) {
-        ledOn = !ledOn;
-        lastBlink = now;
-      }
-      _leds[0] = ledOn ? blinkColor : CRGB::Black;
+      _leds[0] = blinkColor;
       FastLED.show();
     } else {
       // 非検知時：接続状態に応じて表示
@@ -179,7 +172,7 @@ void TaskColorSensor(void* args) {
       } else {
         // 接続中は白点滅
         unsigned long now = millis();
-        if (now - lastBlink >= BLINK_INTERVAL_MS) {
+        if (now - lastBlink >= IDLE_BLINK_INTERVAL_MS) {
           ledOn = !ledOn;
           lastBlink = now;
         }

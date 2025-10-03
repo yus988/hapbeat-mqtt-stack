@@ -14,15 +14,21 @@ struct ColorThreshold {
   uint8_t bMax;
 };
 
-// 各色のしきい値のインスタンスを定義
-const ColorThreshold RED_THD = {
-    .rMin = 140, .rMax = 255, .gMin = 0, .gMax = 70, .bMin = 0, .bMax = 70};
+// 各色のしきい値定義は、ルート直下の sensor_colorParams.h が存在すれば
+// そちらの値でオーバーライドします。存在しない場合は以下のデフォルトを使用します。
+#if __has_include("sensor_color_params.h")
+  #include "sensor_color_params.h"
+#else
+  // デフォルト閾値（上書きファイルが無い場合に適用）
+  const ColorThreshold RED_THD = {
+      .rMin = 140, .rMax = 255, .gMin = 0, .gMax = 70, .bMin = 0, .bMax = 70};
 
-const ColorThreshold BLUE_THD = {
-    .rMin = 30, .rMax = 70, .gMin = 0, .gMax = 90, .bMin = 120, .bMax = 255};
+  const ColorThreshold BLUE_THD = {
+      .rMin = 30, .rMax = 70, .gMin = 0, .gMax = 90, .bMin = 120, .bMax = 255};
 
-const ColorThreshold YELLOW_THD = {
-    .rMin = 100, .rMax = 159, .gMin = 50, .gMax = 100, .bMin = 0, .bMax = 60};
+  const ColorThreshold YELLOW_THD = {
+      .rMin = 100, .rMax = 159, .gMin = 50, .gMax = 100, .bMin = 0, .bMax = 60};
+#endif
 
 // VibrationParams 構造体の定義
 struct VibrationParams {

@@ -63,9 +63,6 @@ void drawIPandPort() {
     M5.Lcd.printf("Port:%d\n", MQTT_LOCAL_PORT);
     y += lh;
     // 実IP（計算結果と一致するはず）
-    uint8_t net3 = gw[3] & mask[3];
-    uint8_t finalOctet = net3 | hostId;
-    IPAddress calcIp(gw[0], gw[1], gw[2], finalOctet);
     M5.Lcd.setCursor(0, y);
     M5.Lcd.printf("IP:%s\n", calcIp.toString().c_str());
 
