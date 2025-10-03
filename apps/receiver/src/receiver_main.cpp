@@ -509,15 +509,17 @@ void setup() {
   for (const auto &msg : DISP_MSG) {
     audioManager::setMessageData(msg.message, msg.id);
   };
+  // 先にオーディオ関連を初期化してから MQTT を開始する。
+  // （接続直後の retain メッセージ受信で未初期化参照→再起動を防止）
+  audioManager::readAllSoundFiles();
+  audioManager::initAudioOut(I2S_BCLK_PIN, I2S_LRCK_PIN, I2S_DOUT_PIN);
+  BQ27220_Cmd::setupBQ27220(SDA_PIN, SCL_PIN, BATTERY_CAPACITY);
   MQTT_manager::initMQTTclient(MQTTcallback, showStatusText);
 #endif
   while (!MQTT_manager::getIsWiFiConnected()) {
     USBSerial.println("waiting for WiFi connection...");
-    delay(500);  // 少し待って再試行
+    delay(500);
   };
-  audioManager::readAllSoundFiles();
-  audioManager::initAudioOut(I2S_BCLK_PIN, I2S_LRCK_PIN, I2S_DOUT_PIN);
-  BQ27220_Cmd::setupBQ27220(SDA_PIN, SCL_PIN, BATTERY_CAPACITY);
   xTaskCreatePinnedToCore(TaskAudio, "TaskAudio", 2048, NULL, 20, &thp[1], 1);
   xTaskCreatePinnedToCore(TaskUI, "TaskUI", 2048, NULL, 23, &thp[0], 1);
 }
